@@ -1,0 +1,12 @@
+[package]
+name = "static-sort"
+version = "0.1.0"
+authors = ["Lapinot <lapinot@scryk.net>"]
+
+[dependencies]
+syn = { version = "0.13", features = ["full"] }
+quote = "0.5"
+proc-macro2 = { version = "0.3", features = ["nightly"] }
+
+[lib]
+proc-macro = true
