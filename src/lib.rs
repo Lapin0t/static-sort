@@ -7,74 +7,63 @@ extern crate proc_macro2;
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
-use syn::{Ident, LitInt, Block, IntSuffix};
+use syn::{Expr, LitInt, Block, IntSuffix};
 use syn::synom::Synom;
 
 
-enum SortAlg {
-    BoseNelson,
-    Batcher,
-    Hibbard,
-}
+mod bose_nelson;
+mod batcher;
+mod bubble;
 
 
-struct SortArgs {
-    algname: Ident,
-    name: Ident,
-    len: LitInt,
-}
+type Net = Vec<(u64, u64)>;
 
 
-impl Synom for SortArgs {
-    named!(parse -> Self, do_parse!(
-        algname: syn!(Ident) >>
-        punct!(,) >>
-        len: syn!(LitInt) >>
-        punct!(,) >>
-        name: syn!(Ident) >>
-        (SortArgs { algname, name, len })
-    ));
-}
-
-
-fn gen_swaps(_alg: SortAlg, _len: u64) -> Vec<(u64, u64)> {
-    vec![(0, 1)]
-}
-
-
-fn do_swap(a: Ident, i: u64, j: u64) -> Block {
+fn comparator(x: Expr, i: u64, j: u64) -> Block {
     let i = LitInt::new(i, IntSuffix::None, Span::call_site());
     let j = LitInt::new(j, IntSuffix::None, Span::call_site());
     parse_quote! {
        { 
-            let c = #a[#i] < #a[#j];
-            let m = if c { #a[#i] } else { #a[#j] };
-            #a[#j] = if c { #a[#j] } else { #a[#i] };
-            #a[#i] = m;
+            let c = #x[#i] < #x[#j];
+            let m = if c { #x[#i] } else { #x[#j] };
+            #x[#j] = if c { #x[#j] } else { #x[#i] };
+            #x[#i] = m;
        }
     }
 }
 
 
-#[proc_macro]
-pub fn static_sort(input: TokenStream) -> TokenStream {
-    let SortArgs { algname, name, len } = syn::parse(input).unwrap();
-
-    let alg = match algname.as_ref() {
-        "bose_nelson" => SortAlg::BoseNelson,
-        "batcher" => SortAlg::Batcher,
-        "hibbard" => SortAlg::Hibbard,
-        _ => {
-            algname.span().unstable().error("unknown algorithm").emit();
-            return TokenStream::empty();
-        }
-    };
-
-    let swaps = gen_swaps(alg, len.value())
-        .into_iter()
-        .map(|(i, j)| do_swap(name, i, j));
-
-    let out = quote! { #(#swaps);* };
-
-    out.into()
+struct SortArgs {
+    len: LitInt,
+    array: Expr,
 }
+
+
+impl Synom for SortArgs {
+    named!(parse -> Self, do_parse!(
+        len: syn!(LitInt) >>
+        punct!(,) >>
+        array: syn!(Expr) >>
+        (SortArgs { array, len })
+    ));
+}
+
+
+macro_rules! mk_ssort {
+    ($name:ident, $gen:path) => {
+        #[proc_macro]
+        pub fn $name(input: TokenStream) -> TokenStream {
+            let SortArgs { len, array } = syn::parse(input).unwrap();
+
+            let swaps = $gen(len.value()).into_iter()
+                .map(|(i, j)| comparator(array.clone(), i, j));
+
+            let out = quote! { #(#swaps)* };
+            out.into()
+        }
+    }
+}
+
+mk_ssort! { ssort_bose_nelson, bose_nelson::bose_nelson }
+mk_ssort! { ssort_batcher, batcher::batcher }
+mk_ssort! { ssort_bubble, bubble::bubble }
